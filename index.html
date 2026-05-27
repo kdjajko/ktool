@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Kalshi Scanner</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --surface2: #1c1c26;
+    --border: #2a2a3a;
+    --green: #00e676;
+    --green-dim: #00e67622;
+    --amber: #ffab00;
+    --amber-dim: #ffab0022;
+    --red: #ff5252;
+    --red-dim: #ff525222;
+    --muted: #666680;
+    --text: #e8e8f0;
+    --text2: #9999b0;
+    --accent: #7c6fff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+
+  header {
+    padding: 20px 16px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; background: var(--bg); z-index: 100;
+  }
+  .logo { font-family: 'Space Mono', monospace; font-size: 15px; font-weight: 700; letter-spacing: -0.5px; }
+  .logo span { color: var(--accent); }
+  .scan-btn {
+    background: var(--accent); color: #fff; border: none;
+    padding: 10px 20px; border-radius: 100px; font-family: 'DM Sans', sans-serif;
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .scan-btn:active { transform: scale(0.96); }
+  .scan-btn:disabled { opacity: 0.5; }
+  .spin { display: inline-block; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .metrics {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 1px; background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .metric { background: var(--bg); padding: 12px 10px; text-align: center; }
+  .metric-val { font-family: 'Space Mono', monospace; font-size: 16px; font-weight: 700; color: var(--text); }
+  .metric-label { font-size: 10px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .filters {
+    display: flex; gap: 8px; padding: 12px 16px;
+    overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border);
+  }
+  .filters::-webkit-scrollbar { display: none; }
+  .filter-btn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text2); padding: 7px 14px; border-radius: 100px;
+    font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer;
+    white-space: nowrap; transition: all 0.15s;
+  }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+
+  .market-list { padding: 8px 0; }
+
+  .market-card {
+    margin: 6px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    transition: border-color 0.2s;
+    animation: fadeUp 0.3s ease both;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .market-card.high { border-left: 3px solid var(--green); }
+  .market-card.med  { border-left: 3px solid var(--amber); }
+  .market-card.low  { border-left: 3px solid var(--border); }
+
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+  .card-title { font-size: 14px; font-weight: 500; line-height: 1.4; flex: 1; }
+  .score-badge {
+    font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700;
+    padding: 4px 8px; border-radius: 8px; white-space: nowrap; flex-shrink: 0;
+  }
+  .score-badge.high { background: var(--green-dim); color: var(--green); }
+  .score-badge.med  { background: var(--amber-dim); color: var(--amber); }
+  .score-badge.low  { background: var(--surface2); color: var(--muted); }
+
+  .card-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+  .stat { background: var(--surface2); border-radius: 8px; padding: 7px 6px; text-align: center; }
+  .stat-val { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700; }
+  .stat-label { font-size: 9px; color: var(--muted); margin-top: 1px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+  .card-bottom { display: flex; justify-content: space-between; align-items: center; }
+  .cat-tag {
+    font-size: 11px; padding: 3px 10px; border-radius: 100px;
+    background: var(--surface2); color: var(--text2); border: 1px solid var(--border);
+  }
+  .signal-tag {
+    font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 100px;
+  }
+  .signal-yes { background: var(--green-dim); color: var(--green); }
+  .signal-no  { background: var(--red-dim); color: var(--red); }
+  .signal-neu { background: var(--surface2); color: var(--muted); }
+
+  .analyze-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text2);
+    padding: 6px 12px; border-radius: 100px; font-size: 12px;
+    font-family: 'DM Sans', sans-serif; cursor: pointer;
+  }
+
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; }
+  .empty p { font-size: 14px; line-height: 1.6; }
+
+  .status-bar {
+    text-align: center; font-size: 12px; color: var(--muted);
+    padding: 8px; font-family: 'Space Mono', monospace;
+  }
+  .loading-card {
+    margin: 6px 12px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 14px; height: 120px;
+    background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">kalshi<span>.</span>scan</div>
+  <button class="scan-btn" id="scanBtn" onclick="runScan()">
+    <span id="scanIcon">⟳</span> Scan
+  </button>
+</header>
+
+<div class="metrics">
+  <div class="metric"><div class="metric-val" id="mTotal">—</div><div class="metric-label">Markets</div></div>
+  <div class="metric"><div class="metric-val" id="mHigh">—</div><div class="metric-label">Hot picks</div></div>
+  <div class="metric"><div class="metric-val" id="mSpread">—</div><div class="metric-label">Avg spread</div></div>
+  <div class="metric"><div class="metric-val" id="mTime">—</div><div class="metric-label">Updated</div></div>
+</div>
+
+<div class="filters">
+  <button class="filter-btn active" onclick="setFilter('all',this)">All</button>
+  <button class="filter-btn" onclick="setFilter('Economics',this)">📈 Economics</button>
+  <button class="filter-btn" onclick="setFilter('Crypto',this)">₿ Crypto</button>
+  <button class="filter-btn" onclick="setFilter('Climate/Weather',this)">🌡 Weather</button>
+  <button class="filter-btn" onclick="setFilter('Politics',this)">🏛 Politics</button>
+  <button class="filter-btn" onclick="setFilter('Sports',this)">🏆 Sports</button>
+</div>
+
+<div class="market-list" id="marketList">
+  <div class="empty">
+    <div class="empty-icon">📡</div>
+    <p>Tap <strong>Scan</strong> to pull<br>live Kalshi markets</p>
+  </div>
+</div>
+<div class="status-bar" id="statusBar"></div>
+
+<script>
+const BASE = "https://external-api.kalshi.com/trade-api/v2";
+
+const TARGET = [
+  ["KXBTCD","Crypto"],["KXETHD","Crypto"],["KXBTCW","Crypto"],
+  ["KXSPX","Economics"],["KXNASDAQ","Economics"],["KXDJI","Economics"],
+  ["INXD","Economics"],["NASDAQ100D","Economics"],
+  ["FED","Economics"],["CPI","Economics"],["UNEMPLOYMENT","Economics"],
+  ["KXHIGHNY","Climate/Weather"],["HIGHCHI","Climate/Weather"],
+  ["HIGHLA","Climate/Weather"],["HIGHHOU","Climate/Weather"],
+  ["HIGHPHX","Climate/Weather"],["HIGHSEA","Climate/Weather"],
+  ["KXTRUMPAPR","Politics"],["SENATE","Politics"],
+];
+
+let allMarkets = [];
+let activeFilter = 'all';
+
+function cents(v) {
+  if (v == null) return null;
+  const c = Math.round(parseFloat(v) * 100);
+  return c > 0 ? c : null;
+}
+function isPriced(m) {
+  return cents(m.yes_bid_dollars) != null && cents(m.yes_ask_dollars) != null;
+}
+function scoreMarket(yb, ya, vol, liq) {
+  let s = 0;
+  vol = vol || 0;
+  if (vol > 50000) s += 30; else if (vol > 10000) s += 20; else if (vol > 1000) s += 10;
+  if (yb && ya) { const sp = ya-yb; if(sp<=3)s+=30; else if(sp<=6)s+=20; else if(sp<=10)s+=10; }
+  const mid = (yb&&ya) ? (yb+ya)/2 : 50;
+  if (mid>=20&&mid<=80) s+=20; else if (mid>=10&&mid<=90) s+=10;
+  liq = liq || 0;
+  if (liq>500) s+=10; else if (liq>100) s+=5;
+  return Math.min(s,99);
+}
+function signalText(mid) {
+  if (mid < 35) return ['NO lean','signal-no'];
+  if (mid > 65) return ['YES lean','signal-yes'];
+  return ['Neutral','signal-neu'];
+}
+function fmtVol(v) {
+  if (!v) return '—';
+  if (v>=1000000) return '$'+(v/1000000).toFixed(1)+'M';
+  if (v>=1000) return '$'+Math.round(v/1000)+'K';
+  return '$'+Math.round(v);
+}
+function fmtC(v) { return v != null ? v+'¢' : '—'; }
+
+async function fetchSeries(ticker, cat) {
+  try {
+    const r = await fetch(`${BASE}/markets?series_ticker=${ticker}&status=open&limit=20`,
+      {headers:{'Accept':'application/json'}});
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.markets||[]).filter(isPriced).map(m => ({...m, _cat: cat}));
+  } catch { return []; }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runScan() {
+  const btn = document.getElementById('scanBtn');
+  const icon = document.getElementById('scanIcon');
+  btn.disabled = true;
+  icon.innerHTML = '<span class="spin">⟳</span>';
+
+  showSkeletons();
+
+  const seen = new Set();
+  const results = [];
+
+  for (const [ticker, cat] of TARGET) {
+    const markets = await fetchSeries(ticker, cat);
+    for (const m of markets) {
+      if (!seen.has(m.ticker)) {
+        seen.add(m.ticker);
+        const yb = cents(m.yes_bid_dollars);
+        const ya = cents(m.yes_ask_dollars);
+        const nb = cents(m.no_bid_dollars);
+        const vol = parseFloat(m.volume_fp || 0);
+        const liq = parseFloat(m.liquidity_dollars || 0);
+        const mid = (yb&&ya) ? (yb+ya)/2 : 50;
+        results.push({
+          ...m,
+          _yb: yb, _ya: ya, _nb: nb,
+          _spread: (yb&&ya) ? ya-yb : null,
+          _vol: vol,
+          _score: scoreMarket(yb,ya,vol,liq),
+          _mid: mid,
+          _cat: cat
+        });
+      }
+    }
+    await sleep(80);
+  }
+
+  allMarkets = results.sort((a,b) => b._score - a._score);
+
+  const spreads = allMarkets.filter(m=>m._spread).map(m=>m._spread);
+  const avgSp = spreads.length ? (spreads.reduce((a,b)=>a+b,0)/spreads.length).toFixed(1)+'¢' : '—';
+  const high = allMarkets.filter(m=>m._score>=60).length;
+
+  document.getElementById('mTotal').textContent = allMarkets.length;
+  document.getElementById('mHigh').textContent = high;
+  document.getElementById('mSpread').textContent = avgSp;
+  document.getElementById('mTime').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+  renderCards();
+
+  btn.disabled = false;
+  icon.textContent = '⟳';
+  document.getElementById('statusBar').textContent = `Last scan: ${new Date().toLocaleTimeString()}`;
+}
+
+function showSkeletons() {
+  const list = document.getElementById('marketList');
+  list.innerHTML = Array(6).fill('<div class="loading-card"></div>').join('');
+}
+
+function setFilter(cat, el) {
+  activeFilter = cat;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderCards();
+}
+
+function renderCards() {
+  const list = document.getElementById('marketList');
+  let filtered = activeFilter === 'all'
+    ? allMarkets
+    : allMarkets.filter(m => m._cat === activeFilter);
+
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div><p>No markets found<br>for this category</p></div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.slice(0,30).map((m, i) => {
+    const sc = m._score;
+    const tier = sc>=60?'high':sc>=35?'med':'low';
+    const [sigText, sigCls] = signalText(m._mid);
+    const title = (m.title || m.ticker || '—').replace(/\*\*/g,'');
+    const delay = Math.min(i * 30, 300);
+    const escapedTitle = title.replace(/'/g,"\\'");
+    return `
+    <div class="market-card ${tier}" style="animation-delay:${delay}ms">
+      <div class="card-top">
+        <div class="card-title">${title}</div>
+        <div class="score-badge ${tier}">${sc}/99</div>
+      </div>
+      <div class="card-stats">
+        <div class="stat"><div class="stat-val">${fmtC(m._yb)}</div><div class="stat-label">YES bid</div></div>
+        <div class="stat"><div class="stat-val">${fmtC(m._ya)}</div><div class="stat-label">YES ask</div></div>
+        <div class="stat"><div class="stat-val">${fmtC(m._spread)}</div><div class="stat-label">Spread</div></div>
+        <div class="stat"><div class="stat-val">${fmtVol(m._vol)}</div><div class="stat-label">Volume</div></div>
+      </div>
+      <div class="card-bottom">
+        <span class="cat-tag">${m._cat}</span>
+        <span class="signal-tag ${sigCls}">${sigText}</span>
+        <button class="analyze-btn" onclick="analyze('${escapedTitle}',${m._yb},${m._ya},${m._vol||0},'${sigText}',${sc})">Analyze ↗</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function analyze(title, yb, ya, vol, sig, score) {
+  const msg = `Analyze this Kalshi market for a short-term trade on a $298 account:\n- Market: ${title}\n- YES bid: ${yb}¢ / ask: ${ya}¢\n- Volume: $${vol}\n- Signal: ${sig}\n- Score: ${score}/99\n\nShould I trade YES or NO? What size, entry price, and exit plan?`;
+  prompt(msg) && navigator.clipboard?.writeText(msg);
+  alert('Analysis prompt copied! Paste it into Claude.');
+}
+</script>
+</body>
+</html>
