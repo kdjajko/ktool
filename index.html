@@ -74,7 +74,6 @@
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 14px;
-    transition: border-color 0.2s;
     animation: fadeUp 0.3s ease both;
   }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -98,17 +97,11 @@
   .stat-label { font-size: 9px; color: var(--muted); margin-top: 1px; text-transform: uppercase; letter-spacing: 0.3px; }
 
   .card-bottom { display: flex; justify-content: space-between; align-items: center; }
-  .cat-tag {
-    font-size: 11px; padding: 3px 10px; border-radius: 100px;
-    background: var(--surface2); color: var(--text2); border: 1px solid var(--border);
-  }
-  .signal-tag {
-    font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 100px;
-  }
+  .cat-tag { font-size: 11px; padding: 3px 10px; border-radius: 100px; background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+  .signal-tag { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 100px; }
   .signal-yes { background: var(--green-dim); color: var(--green); }
   .signal-no  { background: var(--red-dim); color: var(--red); }
   .signal-neu { background: var(--surface2); color: var(--muted); }
-
   .analyze-btn {
     background: transparent; border: 1px solid var(--border); color: var(--text2);
     padding: 6px 12px; border-radius: 100px; font-size: 12px;
@@ -118,19 +111,20 @@
   .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
   .empty-icon { font-size: 40px; margin-bottom: 12px; }
   .empty p { font-size: 14px; line-height: 1.6; }
-
-  .status-bar {
-    text-align: center; font-size: 12px; color: var(--muted);
-    padding: 8px; font-family: 'Space Mono', monospace;
-  }
+  .status-bar { text-align: center; font-size: 12px; color: var(--muted); padding: 8px; font-family: 'Space Mono', monospace; }
   .loading-card {
     margin: 6px 12px; background: var(--surface); border: 1px solid var(--border);
     border-radius: 14px; padding: 14px; height: 120px;
     background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.2s infinite;
+    background-size: 200% 100%; animation: shimmer 1.2s infinite;
   }
   @keyframes shimmer { to { background-position: -200% 0; } }
+
+  .err-banner {
+    margin: 8px 12px; padding: 12px 14px; border-radius: 12px;
+    background: var(--red-dim); border: 1px solid var(--red);
+    color: var(--red); font-size: 13px; line-height: 1.5;
+  }
 </style>
 </head>
 <body>
@@ -167,7 +161,17 @@
 <div class="status-bar" id="statusBar"></div>
 
 <script>
+// CORS proxy options - tries each one until one works
+const PROXIES = [
+  "https://corsproxy.io/?",
+  "https://api.allorigins.win/raw?url=",
+  "https://cors-anywhere.herokuapp.com/",
+];
 const BASE = "https://external-api.kalshi.com/trade-api/v2";
+
+let workingProxy = null;
+let allMarkets = [];
+let activeFilter = 'all';
 
 const TARGET = [
   ["KXBTCD","Crypto"],["KXETHD","Crypto"],["KXBTCW","Crypto"],
@@ -180,9 +184,6 @@ const TARGET = [
   ["KXTRUMPAPR","Politics"],["SENATE","Politics"],
 ];
 
-let allMarkets = [];
-let activeFilter = 'all';
-
 function cents(v) {
   if (v == null) return null;
   const c = Math.round(parseFloat(v) * 100);
@@ -194,46 +195,84 @@ function isPriced(m) {
 function scoreMarket(yb, ya, vol, liq) {
   let s = 0;
   vol = vol || 0;
-  if (vol > 50000) s += 30; else if (vol > 10000) s += 20; else if (vol > 1000) s += 10;
-  if (yb && ya) { const sp = ya-yb; if(sp<=3)s+=30; else if(sp<=6)s+=20; else if(sp<=10)s+=10; }
-  const mid = (yb&&ya) ? (yb+ya)/2 : 50;
-  if (mid>=20&&mid<=80) s+=20; else if (mid>=10&&mid<=90) s+=10;
-  liq = liq || 0;
-  if (liq>500) s+=10; else if (liq>100) s+=5;
+  if (vol>50000) s+=30; else if(vol>10000) s+=20; else if(vol>1000) s+=10;
+  if (yb&&ya) { const sp=ya-yb; if(sp<=3)s+=30; else if(sp<=6)s+=20; else if(sp<=10)s+=10; }
+  const mid = (yb&&ya)?(yb+ya)/2:50;
+  if(mid>=20&&mid<=80)s+=20; else if(mid>=10&&mid<=90)s+=10;
+  liq=liq||0; if(liq>500)s+=10; else if(liq>100)s+=5;
   return Math.min(s,99);
 }
 function signalText(mid) {
-  if (mid < 35) return ['NO lean','signal-no'];
-  if (mid > 65) return ['YES lean','signal-yes'];
+  if (mid<35) return ['NO lean','signal-no'];
+  if (mid>65) return ['YES lean','signal-yes'];
   return ['Neutral','signal-neu'];
 }
 function fmtVol(v) {
-  if (!v) return '—';
-  if (v>=1000000) return '$'+(v/1000000).toFixed(1)+'M';
-  if (v>=1000) return '$'+Math.round(v/1000)+'K';
-  return '$'+Math.round(v);
+  if(!v)return'—';
+  if(v>=1000000)return'$'+(v/1000000).toFixed(1)+'M';
+  if(v>=1000)return'$'+Math.round(v/1000)+'K';
+  return'$'+Math.round(v);
 }
-function fmtC(v) { return v != null ? v+'¢' : '—'; }
+function fmtC(v){return v!=null?v+'¢':'—';}
+
+async function tryFetch(url) {
+  // Try direct first
+  try {
+    const r = await fetch(url, {headers:{Accept:'application/json'}});
+    if (r.ok) { workingProxy = ''; return await r.json(); }
+  } catch {}
+
+  // Try each proxy
+  for (const proxy of PROXIES) {
+    try {
+      const r = await fetch(proxy + encodeURIComponent(url), {headers:{Accept:'application/json'}});
+      if (r.ok) {
+        const data = await r.json();
+        workingProxy = proxy;
+        return data;
+      }
+    } catch {}
+  }
+  return null;
+}
 
 async function fetchSeries(ticker, cat) {
+  const url = `${BASE}/markets?series_ticker=${ticker}&status=open&limit=20`;
+  const proxyUrl = workingProxy ? workingProxy + encodeURIComponent(url) : url;
   try {
-    const r = await fetch(`${BASE}/markets?series_ticker=${ticker}&status=open&limit=20`,
-      {headers:{'Accept':'application/json'}});
+    const r = await fetch(proxyUrl, {headers:{Accept:'application/json'}});
     if (!r.ok) return [];
     const d = await r.json();
-    return (d.markets||[]).filter(isPriced).map(m => ({...m, _cat: cat}));
+    return (d.markets||[]).filter(isPriced).map(m=>({...m,_cat:cat}));
   } catch { return []; }
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 
 async function runScan() {
   const btn = document.getElementById('scanBtn');
   const icon = document.getElementById('scanIcon');
   btn.disabled = true;
   icon.innerHTML = '<span class="spin">⟳</span>';
+  document.getElementById('marketList').innerHTML = Array(5).fill('<div class="loading-card"></div>').join('');
+  document.getElementById('statusBar').textContent = 'Finding working connection...';
 
-  showSkeletons();
+  // Find working proxy
+  const testUrl = `${BASE}/markets?series_ticker=KXHIGHNY&status=open&limit=1`;
+  const testData = await tryFetch(testUrl);
+
+  if (!testData) {
+    document.getElementById('marketList').innerHTML = `
+      <div class="err-banner">
+        ⚠️ Could not connect to Kalshi API. All proxy routes blocked.<br><br>
+        Use the Python script on your computer instead — it works without restrictions.
+      </div>`;
+    btn.disabled = false;
+    icon.textContent = '⟳';
+    return;
+  }
+
+  document.getElementById('statusBar').textContent = 'Connected — scanning markets...';
 
   const seen = new Set();
   const results = [];
@@ -246,73 +285,59 @@ async function runScan() {
         const yb = cents(m.yes_bid_dollars);
         const ya = cents(m.yes_ask_dollars);
         const nb = cents(m.no_bid_dollars);
-        const vol = parseFloat(m.volume_fp || 0);
-        const liq = parseFloat(m.liquidity_dollars || 0);
-        const mid = (yb&&ya) ? (yb+ya)/2 : 50;
-        results.push({
-          ...m,
-          _yb: yb, _ya: ya, _nb: nb,
-          _spread: (yb&&ya) ? ya-yb : null,
-          _vol: vol,
-          _score: scoreMarket(yb,ya,vol,liq),
-          _mid: mid,
-          _cat: cat
+        const vol = parseFloat(m.volume_fp||0);
+        const liq = parseFloat(m.liquidity_dollars||0);
+        const mid = (yb&&ya)?(yb+ya)/2:50;
+        results.push({...m,
+          _yb:yb,_ya:ya,_nb:nb,
+          _spread:(yb&&ya)?ya-yb:null,
+          _vol:vol,
+          _score:scoreMarket(yb,ya,vol,liq),
+          _mid:mid, _cat:cat
         });
       }
     }
     await sleep(80);
   }
 
-  allMarkets = results.sort((a,b) => b._score - a._score);
+  allMarkets = results.sort((a,b)=>b._score-a._score);
 
   const spreads = allMarkets.filter(m=>m._spread).map(m=>m._spread);
-  const avgSp = spreads.length ? (spreads.reduce((a,b)=>a+b,0)/spreads.length).toFixed(1)+'¢' : '—';
-  const high = allMarkets.filter(m=>m._score>=60).length;
+  const avgSp = spreads.length?(spreads.reduce((a,b)=>a+b,0)/spreads.length).toFixed(1)+'¢':'—';
 
   document.getElementById('mTotal').textContent = allMarkets.length;
-  document.getElementById('mHigh').textContent = high;
+  document.getElementById('mHigh').textContent = allMarkets.filter(m=>m._score>=60).length;
   document.getElementById('mSpread').textContent = avgSp;
-  document.getElementById('mTime').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  document.getElementById('mTime').textContent = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
 
   renderCards();
-
   btn.disabled = false;
   icon.textContent = '⟳';
   document.getElementById('statusBar').textContent = `Last scan: ${new Date().toLocaleTimeString()}`;
 }
 
-function showSkeletons() {
-  const list = document.getElementById('marketList');
-  list.innerHTML = Array(6).fill('<div class="loading-card"></div>').join('');
-}
-
 function setFilter(cat, el) {
   activeFilter = cat;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
   el.classList.add('active');
   renderCards();
 }
 
 function renderCards() {
   const list = document.getElementById('marketList');
-  let filtered = activeFilter === 'all'
-    ? allMarkets
-    : allMarkets.filter(m => m._cat === activeFilter);
-
+  let filtered = activeFilter==='all' ? allMarkets : allMarkets.filter(m=>m._cat===activeFilter);
   if (!filtered.length) {
-    list.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div><p>No markets found<br>for this category</p></div>`;
+    list.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><p>No markets found<br>for this category</p></div>`;
     return;
   }
-
-  list.innerHTML = filtered.slice(0,30).map((m, i) => {
-    const sc = m._score;
-    const tier = sc>=60?'high':sc>=35?'med':'low';
-    const [sigText, sigCls] = signalText(m._mid);
-    const title = (m.title || m.ticker || '—').replace(/\*\*/g,'');
-    const delay = Math.min(i * 30, 300);
-    const escapedTitle = title.replace(/'/g,"\\'");
-    return `
-    <div class="market-card ${tier}" style="animation-delay:${delay}ms">
+  list.innerHTML = filtered.slice(0,30).map((m,i)=>{
+    const sc=m._score;
+    const tier=sc>=60?'high':sc>=35?'med':'low';
+    const [sigText,sigCls]=signalText(m._mid);
+    const title=(m.title||m.ticker||'—').replace(/\*\*/g,'');
+    const delay=Math.min(i*30,300);
+    const et=title.replace(/'/g,"\\'");
+    return `<div class="market-card ${tier}" style="animation-delay:${delay}ms">
       <div class="card-top">
         <div class="card-title">${title}</div>
         <div class="score-badge ${tier}">${sc}/99</div>
@@ -326,16 +351,15 @@ function renderCards() {
       <div class="card-bottom">
         <span class="cat-tag">${m._cat}</span>
         <span class="signal-tag ${sigCls}">${sigText}</span>
-        <button class="analyze-btn" onclick="analyze('${escapedTitle}',${m._yb},${m._ya},${m._vol||0},'${sigText}',${sc})">Analyze ↗</button>
+        <button class="analyze-btn" onclick="analyze('${et}',${m._yb},${m._ya},${m._vol||0},'${sigText}',${sc})">Analyze ↗</button>
       </div>
     </div>`;
   }).join('');
 }
 
-function analyze(title, yb, ya, vol, sig, score) {
-  const msg = `Analyze this Kalshi market for a short-term trade on a $298 account:\n- Market: ${title}\n- YES bid: ${yb}¢ / ask: ${ya}¢\n- Volume: $${vol}\n- Signal: ${sig}\n- Score: ${score}/99\n\nShould I trade YES or NO? What size, entry price, and exit plan?`;
-  prompt(msg) && navigator.clipboard?.writeText(msg);
-  alert('Analysis prompt copied! Paste it into Claude.');
+function analyze(title,yb,ya,vol,sig,score) {
+  const msg=`Analyze this Kalshi market:\n- Market: ${title}\n- YES bid: ${yb}¢ / ask: ${ya}¢\n- Volume: $${vol}\n- Signal: ${sig}\n- Score: ${score}/99\n\nShould I trade YES or NO? What size for a $298 account, entry price, and exit plan?`;
+  navigator.clipboard?.writeText(msg).then(()=>alert('Copied! Paste into Claude.')).catch(()=>alert(msg));
 }
 </script>
 </body>
